@@ -1,0 +1,5 @@
+[tools.apple-swift-format]
+description = "Apple's official formatting technology for Swift source code"
+backends = ["github:brightdigit/swift-format-prebuilt", "spm:swiftlang/swift-format"]
+test = ["swift-format --version", "{{version}}"]
+os = ["macos", "linux"]

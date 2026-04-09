@@ -1,0 +1,64 @@
+name: Check Upstream Releases
+
+on:
+  schedule:
+    - cron: "0 8 * * *"
+  workflow_dispatch:
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  detect-and-trigger:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Fetch upstream stable releases
+        run: |
+          gh api "repos/swiftlang/swift-format/releases?per_page=100" \
+            --jq '[
+              .[]
+              | select(.prerelease == false)
+              | .tag_name
+              | select(test("^[0-9]+\\.[0-9]+\\.[0-9]+$"))
+              | select((split(".")[0] | tonumber) >= 508)
+            ]' > upstream.json
+          echo "Upstream versions:"
+          cat upstream.json
+
+      - name: Fetch existing releases
+        run: |
+          gh api "repos/${{ github.repository }}/releases?per_page=100" \
+            --jq '[.[].tag_name]' > existing.json
+          echo "Existing versions:"
+          cat existing.json
+
+      - name: Compute missing versions
+        run: |
+          jq -r -n \
+            --slurpfile upstream upstream.json \
+            --slurpfile existing existing.json \
+            '$upstream[0] - $existing[0] | .[]' > missing.txt
+          echo "Missing versions to build:"
+          cat missing.txt
+
+      - name: Trigger builds for missing versions
+        run: |
+          if [[ ! -s missing.txt ]]; then
+            echo "No missing versions. Nothing to do."
+            exit 0
+          fi
+          while IFS= read -r version; do
+            if [[ -n "$version" ]]; then
+              echo "Triggering build for $version"
+              gh workflow run build.yml \
+                --repo "${{ github.repository }}" \
+                --ref main \
+                -f version="$version"
+            fi
+          done < missing.txt
